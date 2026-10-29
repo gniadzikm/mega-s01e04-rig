@@ -43,6 +43,8 @@ describe('digest page', () => {
     expect(html).toContain('job/two');
     expect(html).toContain('upstream 503');
     expect(html).toContain('2026-10-29T01:00:00+01:00');
+    expect(html).toContain('owner');
+    expect(html).toContain('rook');
   });
 
   it('returns 404 for a missing night', async () => {
@@ -76,7 +78,24 @@ describe('digest page', () => {
     expect(html).toContain('2 invalid lines');
   });
 
-  it('marks rows with retries >= 3 and fail status with warn', async () => {
+  it('marks rows with retries >= 3 with warn styling', async () => {
+    const dir = runsDir({
+      '2026-10-28.jsonl': [
+        JSON.stringify({ ...event, job: 'job/many-retries', status: 'ok' }),
+        JSON.stringify({ ...event, job: 'job/many-retries', status: 'retry', error: 'err1' }),
+        JSON.stringify({ ...event, job: 'job/many-retries', status: 'retry', error: 'err2' }),
+        JSON.stringify({ ...event, job: 'job/many-retries', status: 'retry', error: 'err3' }),
+      ].join('\n'),
+    });
+    const config: RigConfig = { adapter: 'test', installed: '2026-10-29T00:00:00+01:00', beatEverySeconds: 60, runsDir: dir };
+    const res = await createApp(config).request('/digest/2026-10-28');
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(html).toContain('class="warn"');
+    expect(html).toContain('job/many-retries');
+  });
+
+  it('marks rows with fail status with warn styling regardless of retry count', async () => {
     const dir = runsDir({
       '2026-10-28.jsonl': [
         JSON.stringify({ ...event, job: 'job/one', status: 'fail' }),
@@ -91,5 +110,20 @@ describe('digest page', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
     expect(html).toContain('class="warn"');
+  });
+
+  it('displays null owner as — and non-null owner as text', async () => {
+    const dir = runsDir({
+      '2026-10-28.jsonl': [
+        JSON.stringify({ at: '2026-10-29T01:00:00+01:00', job: 'job/with-owner', status: 'ok', owner: 'alice' }),
+        JSON.stringify({ at: '2026-10-29T01:00:00+01:00', job: 'job/no-owner', status: 'ok', owner: null }),
+      ].join('\n'),
+    });
+    const config: RigConfig = { adapter: 'test', installed: '2026-10-29T00:00:00+01:00', beatEverySeconds: 60, runsDir: dir };
+    const res = await createApp(config).request('/digest/2026-10-28');
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(html).toContain('alice');
+    expect(html).toContain('—');
   });
 });
