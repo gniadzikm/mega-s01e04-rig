@@ -1,8 +1,9 @@
 ---
 plan: morning-digest
-status: ready
+status: done
 owner: rook
 opened: 2026-10-29
+closed: 2026-10-29
 ---
 
 # Morning digest
@@ -77,3 +78,28 @@ page again with `LANE_MARKER` unset (the banner reads "no marker set") and uploa
 link. Move this plan to `docs/plans/done/` with its issue list.
 
 Done when: the preview link no longer shows the lane marker.
+
+## Issues
+
+| Plan section | Issue |
+|---|---|
+| 1 | [#1 — Run log reader](https://github.com/gniadzikm/mega-s01e04-rig/issues/1) |
+| 2a | [#2 — Digest page](https://github.com/gniadzikm/mega-s01e04-rig/issues/2) |
+| 2b | [#3 — Digest JSON](https://github.com/gniadzikm/mega-s01e04-rig/issues/3) |
+| 2c | [#4 — Board links and status counts](https://github.com/gniadzikm/mega-s01e04-rig/issues/4) |
+| 2d | [#5 — Route tests](https://github.com/gniadzikm/mega-s01e04-rig/issues/5) |
+| 3 | [#6 — Review preview](https://github.com/gniadzikm/mega-s01e04-rig/issues/6) |
+| 4 | [#7 — Marker cleanup and plan archival](https://github.com/gniadzikm/mega-s01e04-rig/issues/7) |
+
+## Review and cleanup
+
+The course confirmed that the reviewer had seen the preview on 2026-10-29.
+After separate human approval, the page was exported with `LANE_MARKER` unset
+and replaced at the same [public URL](https://gniadzikm.github.io/mega-s01e04-rig/).
+Its banner now reads "no marker set"; the exported and public HTML match exactly.
+The two older marker-bearing Actions artifacts were deleted after verifying
+the replacement. Preview HTML, credentials, and private logs remain outside git.
+
+Validation: 43 tests and typecheck pass, including the marker-free deployment's
+CI checks. Fixture files remain unchanged; live verification confirmed the
+service binds only to localhost.
