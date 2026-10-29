@@ -16,7 +16,6 @@ function getConfig() {
   };
 }
 
-// Extract rows from HTML table tbody: returns array of {cells: string[]}
 function extractTableRows(html: string): Array<{cells: string[]}> {
   const tbodyMatch = html.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/);
   if (!tbodyMatch) return [];
@@ -28,14 +27,12 @@ function extractTableRows(html: string): Array<{cells: string[]}> {
     const cellMatches = tr.match(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g) || [];
     return {
       cells: cellMatches.map((cell) => {
-        // Strip tags and decode entities
         return cell.replace(/<[^>]+>/g, '').trim();
       }),
     };
   });
 }
 
-// Extract class attribute from a row's opening tag
 function getRowClasses(html: string, rowIndex: number): string {
   const tbodyMatch = html.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/);
   if (!tbodyMatch) return '';
@@ -149,6 +146,7 @@ describe('digest routes', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('task/a');
     expect(html).toContain('task/b');
+    expect(html).toContain('1 invalid line');
   });
 
   it('tolerates malformed lines in JSON and returns valid rows', async () => {
@@ -183,10 +181,8 @@ describe('digest routes', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
 
-    // Extract table rows and verify owner cell contains em-dash
     const rows = extractTableRows(html);
     expect(rows.length).toBeGreaterThan(0);
-    // Assuming: first col is job, second is owner, rest are other fields
     const firstRow = rows[0];
     expect(firstRow.cells.length).toBeGreaterThan(1);
     expect(firstRow.cells[1]).toBe('—');
@@ -206,7 +202,6 @@ describe('digest routes', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
 
-    // Extract table rows and verify owner cell shows the name
     const rows = extractTableRows(html);
     expect(rows.length).toBeGreaterThan(0);
     const firstRow = rows[0];
@@ -247,7 +242,6 @@ describe('digest routes', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
 
-    // Extract row classes and verify warning mark
     const rowClasses = getRowClasses(html, 0);
     expect(rowClasses).toMatch(/warn/);
   });
@@ -267,7 +261,6 @@ describe('digest routes', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
 
-    // Extract row classes and verify no warning mark for low retries
     const rowClasses = getRowClasses(html, 0);
     expect(rowClasses).not.toMatch(/warn/);
   });
@@ -286,11 +279,9 @@ describe('digest routes', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
 
-    // Extract row classes and verify warning mark for failed job
     const rowClasses = getRowClasses(html, 0);
     expect(rowClasses).toMatch(/warn/);
 
-    // Verify error message in HTML
     expect(html).toContain('timeout');
   });
 
@@ -308,7 +299,6 @@ describe('digest routes', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
 
-    // Verify the exact error text appears
     expect(html).toContain('disk quota exceeded');
   });
 
@@ -327,12 +317,10 @@ describe('digest routes', () => {
     const pageRes = await createApp(getConfig()).request(`/digest/${night}`);
     const pageHtml = await pageRes.text();
 
-    // Extract actual job order from HTML table
     const rows = extractTableRows(pageHtml);
     expect(rows.length).toBe(3);
-    const pageJobs = rows.map((row) => row.cells[0]); // First cell is job name
+    const pageJobs = rows.map((row) => row.cells[0]);
 
-    // Verify strict alphabetical order
     expect(pageJobs).toEqual(['a/job', 'm/job', 'z/job']);
   });
 
@@ -354,14 +342,11 @@ describe('digest routes', () => {
     const jsonRes = await createApp(getConfig()).request(`/api/digest/${night}`);
     const jsonData = await jsonRes.json() as DigestRow[];
 
-    // Extract job order from HTML table
     const rows = extractTableRows(pageHtml);
     const pageJobs = rows.map((row) => row.cells[0]);
 
-    // Extract job order from JSON
     const jsonJobs = jsonData.map((row) => row.job);
 
-    // Verify both are in same alphabetical order
     expect(pageJobs).toEqual(jsonJobs);
     expect(jsonJobs).toEqual(['a/job', 'm/job', 'z/job']);
   });
@@ -381,7 +366,6 @@ describe('digest routes', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
 
-    // Verify the exact timestamp string appears in HTML
     expect(html).toContain(inputTimestamp);
   });
 
@@ -402,7 +386,6 @@ describe('digest routes', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
 
-    // Verify both exact timestamps with offsets appear
     expect(html).toContain(ts1);
     expect(html).toContain(ts2);
   });
