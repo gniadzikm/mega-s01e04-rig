@@ -285,10 +285,11 @@ describe('digest routes', () => {
     expect(html).toContain('timeout');
   });
 
-  it('displays error message from failed job in HTML', async () => {
+  it('keeps recovered failures marked and their diagnostic error visible in HTML and JSON', async () => {
     const night = '2026-10-29';
     const events = [
       { at: '2026-10-29T01:00:00+01:00', job: 'task/a', status: 'fail', owner: 'rook', error: 'disk quota exceeded' },
+      { at: '2026-10-29T02:00:00+01:00', job: 'task/a', status: 'ok', owner: 'rook' },
     ];
     writeFileSync(
       join(testDir, `${night}.jsonl`),
@@ -299,7 +300,17 @@ describe('digest routes', () => {
     const html = await res.text();
     expect(res.status).toBe(200);
 
-    expect(html).toContain('disk quota exceeded');
+    expect(getRowClasses(html, 0)).toMatch(/warn/);
+    const cells = extractTableRows(html)[0].cells;
+    expect(cells[4]).toBe('ok');
+    expect(cells[5]).toBe('disk quota exceeded');
+
+    const jsonRes = await createApp(getConfig()).request(`/api/digest/${night}`);
+    expect(jsonRes.status).toBe(200);
+    const rows = await jsonRes.json() as DigestRow[];
+    expect(rows[0]).toMatchObject({
+      lastStatus: 'ok', lastError: 'disk quota exceeded', hasFailure: true, retries: 0,
+    });
   });
 
   it('returns jobs in strict alphabetical order on page extracted from table', async () => {

@@ -23,7 +23,7 @@ export function DigestPage({ result }: { result: DigestResult }) {
             </thead>
             <tbody>
               {result.rows.map((row) => (
-                <tr class={row.retries >= 3 || row.lastStatus === 'fail' ? 'warn' : ''}>
+                <tr class={row.retries >= 3 || row.hasFailure ? 'warn' : ''}>
                   <td>{row.job}</td>
                   <td>{row.owner ?? '—'}</td>
                   <td>{row.runs}</td>
