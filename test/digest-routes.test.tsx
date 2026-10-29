@@ -16,6 +16,39 @@ function getConfig() {
   };
 }
 
+// Extract rows from HTML table tbody: returns array of {cells: string[]}
+function extractTableRows(html: string): Array<{cells: string[]}> {
+  const tbodyMatch = html.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/);
+  if (!tbodyMatch) return [];
+
+  const tbody = tbodyMatch[1];
+  const trMatches = tbody.match(/<tr[^>]*>([\s\S]*?)<\/tr>/g) || [];
+
+  return trMatches.map((tr) => {
+    const cellMatches = tr.match(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g) || [];
+    return {
+      cells: cellMatches.map((cell) => {
+        // Strip tags and decode entities
+        return cell.replace(/<[^>]+>/g, '').trim();
+      }),
+    };
+  });
+}
+
+// Extract class attribute from a row's opening tag
+function getRowClasses(html: string, rowIndex: number): string {
+  const tbodyMatch = html.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/);
+  if (!tbodyMatch) return '';
+
+  const tbody = tbodyMatch[1];
+  const trMatches = tbody.match(/<tr[^>]*>/g) || [];
+  if (rowIndex >= trMatches.length) return '';
+
+  const trTag = trMatches[rowIndex];
+  const classMatch = trTag.match(/class="([^"]*)"/);
+  return classMatch ? classMatch[1] : '';
+}
+
 beforeEach(() => {
   testDir = mkdtempSync(join(tmpdir(), 'rig-routes-'));
 });
@@ -136,7 +169,7 @@ describe('digest routes', () => {
     expect(json.length).toBe(2);
   });
 
-  it('preserves null-owner row and displays as "—" in HTML', async () => {
+  it('displays null-owner as em-dash in HTML table owner cell', async () => {
     const night = '2026-10-29';
     const events = [
       { at: '2026-10-29T01:00:00+01:00', job: 'task/a', status: 'ok', owner: null },
@@ -149,8 +182,36 @@ describe('digest routes', () => {
     const res = await createApp(getConfig()).request(`/digest/${night}`);
     const html = await res.text();
     expect(res.status).toBe(200);
-    expect(html).toContain('task/a');
-    expect(html).toContain('—');
+
+    // Extract table rows and verify owner cell contains em-dash
+    const rows = extractTableRows(html);
+    expect(rows.length).toBeGreaterThan(0);
+    // Assuming: first col is job, second is owner, rest are other fields
+    const firstRow = rows[0];
+    expect(firstRow.cells.length).toBeGreaterThan(1);
+    expect(firstRow.cells[1]).toBe('—');
+  });
+
+  it('displays non-null owner in HTML table owner cell', async () => {
+    const night = '2026-10-29';
+    const events = [
+      { at: '2026-10-29T01:00:00+01:00', job: 'task/a', status: 'ok', owner: 'rook' },
+    ];
+    writeFileSync(
+      join(testDir, `${night}.jsonl`),
+      events.map((e) => JSON.stringify(e)).join('\n'),
+    );
+
+    const res = await createApp(getConfig()).request(`/digest/${night}`);
+    const html = await res.text();
+    expect(res.status).toBe(200);
+
+    // Extract table rows and verify owner cell shows the name
+    const rows = extractTableRows(html);
+    expect(rows.length).toBeGreaterThan(0);
+    const firstRow = rows[0];
+    expect(firstRow.cells.length).toBeGreaterThan(1);
+    expect(firstRow.cells[1]).toBe('rook');
   });
 
   it('preserves null-owner row in JSON', async () => {
@@ -169,7 +230,7 @@ describe('digest routes', () => {
     expect(json[0].owner).toBe(null);
   });
 
-  it('marks jobs with retries >= 3 with a warning in HTML', async () => {
+  it('marks rows with retries >= 3 and ok status with warning class', async () => {
     const night = '2026-10-29';
     const events = [
       { at: '2026-10-29T01:00:00+01:00', job: 'task/a', status: 'retry', owner: 'rook' },
@@ -185,11 +246,33 @@ describe('digest routes', () => {
     const res = await createApp(getConfig()).request(`/digest/${night}`);
     const html = await res.text();
     expect(res.status).toBe(200);
-    // Should contain some visual indicator for high retry count
-    expect(html).toContain('task/a');
+
+    // Extract row classes and verify warning mark
+    const rowClasses = getRowClasses(html, 0);
+    expect(rowClasses).toMatch(/warn/);
   });
 
-  it('marks failed jobs with a warning in HTML', async () => {
+  it('does not mark ok rows with <3 retries with warning class', async () => {
+    const night = '2026-10-29';
+    const events = [
+      { at: '2026-10-29T01:00:00+01:00', job: 'task/a', status: 'retry', owner: 'rook' },
+      { at: '2026-10-29T01:05:00+01:00', job: 'task/a', status: 'ok', owner: 'rook' },
+    ];
+    writeFileSync(
+      join(testDir, `${night}.jsonl`),
+      events.map((e) => JSON.stringify(e)).join('\n'),
+    );
+
+    const res = await createApp(getConfig()).request(`/digest/${night}`);
+    const html = await res.text();
+    expect(res.status).toBe(200);
+
+    // Extract row classes and verify no warning mark for low retries
+    const rowClasses = getRowClasses(html, 0);
+    expect(rowClasses).not.toMatch(/warn/);
+  });
+
+  it('marks failed rows with warning class regardless of retries', async () => {
     const night = '2026-10-29';
     const events = [
       { at: '2026-10-29T01:00:00+01:00', job: 'task/a', status: 'fail', owner: 'rook', error: 'timeout' },
@@ -202,12 +285,58 @@ describe('digest routes', () => {
     const res = await createApp(getConfig()).request(`/digest/${night}`);
     const html = await res.text();
     expect(res.status).toBe(200);
-    // Should contain some visual indicator for failure
-    expect(html).toContain('task/a');
+
+    // Extract row classes and verify warning mark for failed job
+    const rowClasses = getRowClasses(html, 0);
+    expect(rowClasses).toMatch(/warn/);
+
+    // Verify error message in HTML
     expect(html).toContain('timeout');
   });
 
-  it('returns jobs in same order on page and JSON', async () => {
+  it('displays error message from failed job in HTML', async () => {
+    const night = '2026-10-29';
+    const events = [
+      { at: '2026-10-29T01:00:00+01:00', job: 'task/a', status: 'fail', owner: 'rook', error: 'disk quota exceeded' },
+    ];
+    writeFileSync(
+      join(testDir, `${night}.jsonl`),
+      events.map((e) => JSON.stringify(e)).join('\n'),
+    );
+
+    const res = await createApp(getConfig()).request(`/digest/${night}`);
+    const html = await res.text();
+    expect(res.status).toBe(200);
+
+    // Verify the exact error text appears
+    expect(html).toContain('disk quota exceeded');
+  });
+
+  it('returns jobs in strict alphabetical order on page extracted from table', async () => {
+    const night = '2026-10-29';
+    const events = [
+      { at: '2026-10-29T01:00:00+01:00', job: 'z/job', status: 'ok', owner: 'rook' },
+      { at: '2026-10-29T01:05:00+01:00', job: 'a/job', status: 'ok', owner: 'rook' },
+      { at: '2026-10-29T01:10:00+01:00', job: 'm/job', status: 'ok', owner: 'rook' },
+    ];
+    writeFileSync(
+      join(testDir, `${night}.jsonl`),
+      events.map((e) => JSON.stringify(e)).join('\n'),
+    );
+
+    const pageRes = await createApp(getConfig()).request(`/digest/${night}`);
+    const pageHtml = await pageRes.text();
+
+    // Extract actual job order from HTML table
+    const rows = extractTableRows(pageHtml);
+    expect(rows.length).toBe(3);
+    const pageJobs = rows.map((row) => row.cells[0]); // First cell is job name
+
+    // Verify strict alphabetical order
+    expect(pageJobs).toEqual(['a/job', 'm/job', 'z/job']);
+  });
+
+  it('returns jobs in same strict alphabetical order in JSON as table', async () => {
     const night = '2026-10-29';
     const events = [
       { at: '2026-10-29T01:00:00+01:00', job: 'z/job', status: 'ok', owner: 'rook' },
@@ -225,21 +354,23 @@ describe('digest routes', () => {
     const jsonRes = await createApp(getConfig()).request(`/api/digest/${night}`);
     const jsonData = await jsonRes.json() as DigestRow[];
 
-    // Extract job names from HTML in order they appear
-    const pageJobs = ['a/job', 'm/job', 'z/job']; // alphabetical order
-    for (const job of pageJobs) {
-      expect(pageHtml).toContain(job);
-    }
+    // Extract job order from HTML table
+    const rows = extractTableRows(pageHtml);
+    const pageJobs = rows.map((row) => row.cells[0]);
 
-    // Verify JSON is in same order (should be sorted)
+    // Extract job order from JSON
     const jsonJobs = jsonData.map((row) => row.job);
+
+    // Verify both are in same alphabetical order
+    expect(pageJobs).toEqual(jsonJobs);
     expect(jsonJobs).toEqual(['a/job', 'm/job', 'z/job']);
   });
 
-  it('includes time offsets in HTML when straightforward', async () => {
+  it('includes exact input timestamp string with offset in HTML', async () => {
     const night = '2026-10-29';
+    const inputTimestamp = '2026-10-29T01:00:00+01:00';
     const events = [
-      { at: '2026-10-29T01:00:00+01:00', job: 'task/a', status: 'ok', owner: 'rook' },
+      { at: inputTimestamp, job: 'task/a', status: 'ok', owner: 'rook' },
     ];
     writeFileSync(
       join(testDir, `${night}.jsonl`),
@@ -249,7 +380,30 @@ describe('digest routes', () => {
     const res = await createApp(getConfig()).request(`/digest/${night}`);
     const html = await res.text();
     expect(res.status).toBe(200);
-    // Time offset should be preserved from the log
-    expect(html).toContain('01:00');
+
+    // Verify the exact timestamp string appears in HTML
+    expect(html).toContain(inputTimestamp);
+  });
+
+  it('preserves different timezone offsets in HTML timestamps', async () => {
+    const night = '2026-10-29';
+    const ts1 = '2026-10-29T01:00:00+01:00';
+    const ts2 = '2026-10-29T02:00:00Z';
+    const events = [
+      { at: ts1, job: 'task/a', status: 'ok', owner: 'rook' },
+      { at: ts2, job: 'task/b', status: 'ok', owner: 'rook' },
+    ];
+    writeFileSync(
+      join(testDir, `${night}.jsonl`),
+      events.map((e) => JSON.stringify(e)).join('\n'),
+    );
+
+    const res = await createApp(getConfig()).request(`/digest/${night}`);
+    const html = await res.text();
+    expect(res.status).toBe(200);
+
+    // Verify both exact timestamps with offsets appear
+    expect(html).toContain(ts1);
+    expect(html).toContain(ts2);
   });
 });
