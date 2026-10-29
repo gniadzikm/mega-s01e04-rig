@@ -1,0 +1,69 @@
+name: Publish digest preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      with_marker:
+        description: Include the lane marker (requires separate human approval)
+        type: boolean
+        default: true
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: 10.6.5
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck && pnpm test
+      - name: Export the sample digest outside the checkout
+        env:
+          LANE_MARKER: ${{ secrets.DIGEST_LANE_MARKER }}
+          WITH_MARKER: ${{ inputs.with_marker }}
+          PORT: 8787
+        run: |
+          if [ "$WITH_MARKER" = true ]; then
+            test -n "$LANE_MARKER"
+          else
+            unset LANE_MARKER
+          fi
+          pnpm start > "$RUNNER_TEMP/rig.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          mkdir -p "$RUNNER_TEMP/digest-preview"
+          curl --fail --silent --show-error --retry 20 --retry-connrefused --retry-delay 1 \
+            http://localhost:8787/digest/2026-10-28 \
+            --output "$RUNNER_TEMP/digest-preview/index.html"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digest-preview
+          retention-days: 1
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy the approved preview
+        id: deployment
+        uses: actions/deploy-pages@v4
