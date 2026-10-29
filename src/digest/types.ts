@@ -2,11 +2,14 @@ export type RunStatus = 'ok' | 'retry' | 'fail';
 
 export type DigestRow = {
   job: string;
-  // Owner, status and error come from the latest event; an absent error becomes null.
+  // Owner and status come from the latest event.
   owner: string | null;
   runs: number;
   retries: number;
+  // Includes failures followed by successful recovery.
+  hasFailure: boolean;
   lastStatus: RunStatus;
+  // Latest diagnostic error by event time; recovery does not clear it.
   lastError: string | null;
   // Chronological endpoints, retaining the log's original timestamp strings and offsets.
   // For equal instants, the later line supplies the latest event.

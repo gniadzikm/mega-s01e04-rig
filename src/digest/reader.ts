@@ -26,7 +26,7 @@ export const readNight: ReadNight = (runsDir, night) => {
   }
   result.found = true;
 
-  const rows = new Map<string, DigestRow>();
+  const jobs = new Map<string, { row: DigestRow; lastErrorAt: number }>();
   for (const line of contents.split(/\r?\n/)) {
     if (!line.trim()) continue;
     const event = parseEvent(line);
@@ -35,32 +35,42 @@ export const readNight: ReadNight = (runsDir, night) => {
       continue;
     }
     result.counts[event.status]++;
-    const row = rows.get(event.job);
-    if (!row) {
-      rows.set(event.job, {
-        job: event.job,
-        owner: event.owner,
-        runs: 1,
-        retries: event.status === 'retry' ? 1 : 0,
-        lastStatus: event.status,
-        lastError: event.error ?? null,
-        firstAt: event.at,
-        lastAt: event.at,
+    const at = Date.parse(event.at);
+    const existing = jobs.get(event.job);
+    if (!existing) {
+      jobs.set(event.job, {
+        row: {
+          job: event.job,
+          owner: event.owner,
+          runs: 1,
+          retries: event.status === 'retry' ? 1 : 0,
+          hasFailure: event.status === 'fail',
+          lastStatus: event.status,
+          lastError: event.error ?? null,
+          firstAt: event.at,
+          lastAt: event.at,
+        },
+        lastErrorAt: event.error === undefined ? -Infinity : at,
       });
       continue;
     }
+    const { row } = existing;
     row.runs++;
     if (event.status === 'retry') row.retries++;
-    const at = Date.parse(event.at);
+    if (event.status === 'fail') row.hasFailure = true;
+    if (event.error !== undefined && at >= existing.lastErrorAt) {
+      row.lastError = event.error;
+      existing.lastErrorAt = at;
+    }
     if (at < Date.parse(row.firstAt)) row.firstAt = event.at;
     if (at >= Date.parse(row.lastAt)) {
       row.lastAt = event.at;
       row.owner = event.owner;
       row.lastStatus = event.status;
-      row.lastError = event.error ?? null;
     }
   }
-  result.rows = [...rows.values()].sort((a, b) => a.job < b.job ? -1 : a.job > b.job ? 1 : 0);
+  result.rows = [...jobs.values()].map(({ row }) => row)
+    .sort((a, b) => a.job < b.job ? -1 : a.job > b.job ? 1 : 0);
   return result;
 };
 

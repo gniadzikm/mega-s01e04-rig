@@ -33,27 +33,27 @@ describe('readNight', () => {
       rows: [
         {
           job: 'digest/render', owner: null, runs: 1, retries: 0,
-          lastStatus: 'ok', lastError: null,
+          hasFailure: false, lastStatus: 'ok', lastError: null,
           firstAt: '2026-10-29T05:41:09+01:00', lastAt: '2026-10-29T05:41:09+01:00',
         },
         {
           job: 'fixtures/refresh', owner: 'rook', runs: 4, retries: 3,
-          lastStatus: 'ok', lastError: null,
+          hasFailure: false, lastStatus: 'ok', lastError: 'upstream 503',
           firstAt: '2026-10-29T01:30:00+01:00', lastAt: '2026-10-29T01:37:00+01:00',
         },
         {
           job: 'lane/sync', owner: 'rook', runs: 8, retries: 1,
-          lastStatus: 'ok', lastError: null,
+          hasFailure: false, lastStatus: 'ok', lastError: 'lock held',
           firstAt: '2026-10-28T23:00:06+01:00', lastAt: '2026-10-29T05:00:04+01:00',
         },
         {
           job: 'notes/backup', owner: 'lane-07', runs: 1, retries: 0,
-          lastStatus: 'fail', lastError: 'quota exceeded',
+          hasFailure: true, lastStatus: 'fail', lastError: 'quota exceeded',
           firstAt: '2026-10-29T04:00:01+01:00', lastAt: '2026-10-29T04:00:01+01:00',
         },
         {
           job: 'rig/rotate-logs', owner: 'lane-07', runs: 1, retries: 0,
-          lastStatus: 'ok', lastError: null,
+          hasFailure: false, lastStatus: 'ok', lastError: null,
           firstAt: '2026-10-28T23:00:02+01:00', lastAt: '2026-10-28T23:00:02+01:00',
         },
       ],
@@ -92,7 +92,7 @@ describe('readNight', () => {
     expect(result.counts).toEqual({ ok: 0, retry: 1, fail: 1 });
     expect(result.rows).toEqual([{
       job: event.job, owner: 'rook', runs: 2, retries: 1, lastStatus: 'fail',
-      lastError: 'still broken', firstAt: event.at, lastAt: event.at,
+      hasFailure: true, lastError: 'still broken', firstAt: event.at, lastAt: event.at,
     }]);
   });
 
@@ -105,10 +105,27 @@ describe('readNight', () => {
     ];
     const result = readNight(runsDir(events.map((item) => JSON.stringify(item)).join('\n')), night);
     expect(result.rows).toEqual([{
-      job: event.job, owner: null, runs: 4, retries: 2, lastStatus: 'ok', lastError: null,
+      job: event.job, owner: null, runs: 4, retries: 2, hasFailure: true,
+      lastStatus: 'ok', lastError: 'old',
       firstAt: '2026-10-29T02:00:00+02:00', lastAt: '2026-10-29T00:30:00Z',
     }]);
     expect(result.counts).toEqual({ ok: 1, retry: 2, fail: 1 });
+  });
+
+  it('retains the latest diagnostic error across recovery and out-of-order events', () => {
+    const events = [
+      { ...event, at: '2026-10-29T03:00:00+01:00', owner: null },
+      { ...event, at: '2026-10-29T02:00:00+01:00', status: 'retry', error: 'latest' },
+      { ...event, at: '2026-10-29T01:00:00+01:00', status: 'fail', error: 'initial' },
+      { ...event, at: '2026-10-29T02:00:00+01:00', status: 'retry', error: 'latest tied' },
+      { ...event, at: '2026-10-29T00:00:00+01:00', status: 'retry', error: 'oldest' },
+    ];
+    const result = readNight(runsDir(events.map((item) => JSON.stringify(item)).join('\n')), night);
+    expect(result.rows).toEqual([{
+      job: event.job, owner: null, runs: 5, retries: 3, hasFailure: true,
+      lastStatus: 'ok', lastError: 'latest tied',
+      firstAt: '2026-10-29T00:00:00+01:00', lastAt: '2026-10-29T03:00:00+01:00',
+    }]);
   });
 
   it('handles prototype-like job names and sorts by code units', () => {
